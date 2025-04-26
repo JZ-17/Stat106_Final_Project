@@ -1,0 +1,85 @@
+---
+title: "Comparing Tiki-Taka and Long Ball Strategies in Modern Soccer"
+author: "Josh Zhang, Chris Tran, Chloe Headland, and Matteo Deambrogio"
+output: pdf_document
+date: "2025-04-25"
+---
+\section{Research Question}
+
+For this project, we seek to analyze how certain playstyles influence team performance outcomes in professional soccer matches. Specifically, we seek to see the difference in performance between short-passing, possession-based tiki-taka playstyles in comparison to direct, long ball strategies. With that, we ultimately formulate our research question:
+
+\textbf{How do different playing styles—specifically the short-passing, possession-based tiki-taka versus the direct, long ball approach—influence team performance outcomes in professional soccer matches?}
+
+\section{Dataset}
+
+Within this project, we plan on utilizing the \textbf{European Soccer Database} by Hugo Mathien, a comprehensive dataset containing match-level, team-level, and player-level information across several major European soccer leagues from 2008 to 2016.
+
+This dataset is particularly well-suited to our analysis for a multitude of reasons. First, it provides detailed match outcomes including goals scored by the home and away teams, which enables the construction of team-level seasonal summaries needed to analyze playing styles. Second, it contains team identifiers and league affiliations, allowing us to group matches by league and season to observe stylistic patterns over time and across competitions. Third, it offers broad coverage across multiple seasons and top-tier leagues (e.g., England, Spain, Italy, Germany, and France), which is essential for conducting a comparative study of different tactical strategies, particularly when talking of long-ball vs tiki-taka strategies.
+
+Given its breadth and public availability, the European Soccer Database provides a strong foundation for extracting team-level features necessary for our exploratory and inferential analyses regarding soccer playing styles. For more information about this dataset, please click \color{blue}\href{https://www.kaggle.com/datasets/hugomathien/soccer?resource=download}{here!}\color{black}
+
+\section{Variables Measured}
+
+\textbf{Passing Metrics:} Total number of passes, average pass distance, pass completion rate
+
+\textbf{Possession Metrics:} Percentage of ball possession
+
+\textbf{Attacking Indicators:} Number of shots, shots on target, goal conversion rates
+
+\textbf{Defensive Indicators:} Interceptions and defensive clearances (to control for counter-play)
+
+\section{Exploratory Data Analysis}
+
+To start with our exploratory data analysis, let us analyze what datasets are comprised within the European Soccer Database.
+
+```{r}
+library(DBI)
+library(RSQLite)
+
+# Connect to the SQL file we seek to access
+con <- dbConnect(RSQLite::SQLite(), "data/database.sqlite")
+
+# See what tables exist
+dbListTables(con)
+```
+
+Let us now extract each dataset and also examine them as well.
+
+```{r}
+# Check all tables
+country_df <- dbReadTable(con, "Country")
+league_df <- dbReadTable(con, "League")
+match_df <- dbReadTable(con, "Match")
+player_df <- dbReadTable(con, "Player")
+player_at_df <- dbReadTable(con, "Player_Attributes")
+team_df <- dbReadTable(con, "Team")
+team_at_df <- dbReadTable(con, "Team_Attributes")
+what_is_this_df <- dbReadTable(con, "sqlite_sequence")
+```
+
+```{r}
+head(country_df, 5)
+head(league_df, 5)
+head(match_df, 5)
+head(player_df, 5)
+head(player_at_df, 5)
+head(team_df, 5)
+head(team_at_df, 5)
+head(what_is_this_df, 5)
+```
+\textbf{Country Dataframe:} It appears that the country dataframe seems to map the country a league resides in within the dataset with a corresponding \texttt{id}. It appears that the $\texttt{id}$ columns appears to be universal connector across datasets. Therefore it would be nice to keep around to ajoin datasets if needed.
+
+\textbf{League Dataframe:} Similar to the country dataframe, every league is also given a corresponding unique \texttt{country\_id} as well. We will likely use this dataframe to filter out datasets, on the basis of leagues. For the sake of simplicity, we will likely primarily analyze performance of short and long ball strategies within the context of the Big-5 Leagues.
+
+\textbf{Match Dataframe:} The match dataframe appears to contain every single match within the dataset, giving each individual match a unique \texttt{match\_api\_id}. With each entry, goals for each team are shown, the \texttt{home\_team\_api\_id} and \texttt{away\_team\_api\_id} are shown, and a series of statistics are shown as well.
+
+\textbf{Player Dataframe:} This is a rather funny dataset. It contains a unique player identifer id of \texttt{player\_api\_id}, their names, fifa game id, birthday, and physicals. This may be useful for tracking down certain players, but likely not for our analysis.
+
+\textbf{Player Attribute Dataframe:} This is also a rather funny dataset. We believe that these are player's FIFA ratings. While quirky, not likely what we need for our dataset.
+
+\textbf{Team Dataframe:} This appears to be a dataset housing the identifers for each team, along with the corresponding official team name.
+
+\textbf{Team Attribute Dataframe:} Once again, same as the Player Attribute Dataframe, but for teams this time.
+
+\textbf{What Is This Dataframe:} This appears to show the number of entries within each dataframe.
+
