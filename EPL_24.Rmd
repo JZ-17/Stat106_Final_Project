@@ -1,0 +1,109 @@
+---
+title: "EPL_24"
+author: "Deambrogio"
+date: "4/25/2025"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+```
+
+
+```{r}
+pass_EPL_24<- read.csv("pass_EPL_24.csv")
+mod_EPL_24 <- pass_EPL_24 %>%
+  group_by(Game_URL) %>%
+  summarise(
+    # compare the two xG columns (they're constant within each group)
+    Home_better = as.integer(first(Home_xG) > first(Away_xG)),
+    # extract the Cmp_Total for Home and for Away and take the ratio
+    HomePass_to_AwayPass = Cmp_Total[Home_Away == "Home"] /
+                           Cmp_Total[Home_Away == "Away"],
+    HomePass_to_AwayPass_short = Att_Short[Home_Away == "Home"] /
+                           Att_Short[Home_Away == "Away"]
+  ) %>%
+  ungroup() %>%
+  select(Game_URL, Home_better, HomePass_to_AwayPass,HomePass_to_AwayPass_short)
+
+# print to check
+head(mod_EPL_24)
+```
+
+
+```{r}
+# Fit logistic model
+log_mod <- glm(
+  Home_better ~ HomePass_to_AwayPass,
+  data   = mod_EPL_24,
+  family = 'binomial'
+)
+
+# View the coefficient estimates, p-values, etc.
+summary(log_mod)
+
+exp(coef(log_mod))
+1/(1+exp(0.4440-0.6644))
+1/(1+exp(0.4440-0.6644*1.5))
+```
+
+```{r}
+# Fit logistic model
+log_mod2 <- glm(
+  Home_better ~ HomePass_to_AwayPass_short,
+  data   = mod_EPL_24,
+  family = 'binomial'
+)
+
+# View the coefficient estimates, p-values, etc.
+summary(log_mod2)
+```
+
+```{r}
+ggplot(mod_EPL_24, aes(x = "", y = HomePass_to_AwayPass_short)) +
+  geom_boxplot() +
+  labs(
+    x     = NULL,
+    y     = "HomePass_to_AwayPass_short",
+    title = "Boxplot of HomePass_to_AwayPass_short"
+  ) +
+  theme_minimal()
+
+# Boxplot for HomePass_to_AwayPass
+ggplot(mod_EPL_24, aes(x = "", y = HomePass_to_AwayPass)) +
+  geom_boxplot() +
+  labs(
+    x     = NULL,
+    y     = "HomePass_to_AwayPass",
+    title = "Boxplot of HomePass_to_AwayPass"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(mod_EPL_24, aes(x = HomePass_to_AwayPass_short)) +
+  geom_histogram(binwidth = 0.1, boundary = 0, closed = "left") +
+  labs(
+    x     = "HomePass_to_AwayPass_short",
+    y     = "Count",
+    title = "Distribution of HomePass_to_AwayPass_short"
+  ) +
+  theme_minimal()
+
+# Histogram for HomePass_to_AwayPass
+ggplot(mod_EPL_24, aes(x = HomePass_to_AwayPass)) +
+  geom_histogram(binwidth = 0.1, boundary = 0, closed = "left") +
+  labs(
+    x     = "HomePass_to_AwayPass",
+    y     = "Count",
+    title = "Distribution of HomePass_to_AwayPass"
+  ) +
+  theme_minimal()
+```
+
+
