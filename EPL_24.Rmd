@@ -13,25 +13,38 @@ library(dplyr)
 library(ggplot2)
 ```
 
-
 ```{r}
 pass_EPL_24<- read.csv("pass_EPL_24.csv")
-mod_EPL_24 <- pass_EPL_24 %>%
+pass_EPL_23<- read.csv("pass_EPL_23.csv")
+pass_ITA_24<- read.csv("pass_ITA_24.csv")
+pass_ITA_23<- read.csv("pass_ITA_23.csv")
+
+all_pass <- rbind(
+  pass_EPL_24,
+  pass_EPL_23,
+  pass_ITA_24,
+  pass_ITA_23
+)
+dim(all_pass)
+```
+
+
+```{r}
+all_pass_summary <- all_pass %>%
   group_by(Game_URL) %>%
   summarise(
-    # compare the two xG columns (they're constant within each group)
-    Home_better = as.integer(first(Home_xG) > first(Away_xG)),
-    # extract the Cmp_Total for Home and for Away and take the ratio
-    HomePass_to_AwayPass = Cmp_Total[Home_Away == "Home"] /
-                           Cmp_Total[Home_Away == "Away"],
-    HomePass_to_AwayPass_short = Att_Short[Home_Away == "Home"] /
-                           Att_Short[Home_Away == "Away"]
+    HomeTeam              = first(`Home_Team`),
+    AwayTeam              = first(`Away_Team`),
+    Home_better           = as.integer(first(Home_xG) > first(Away_xG)),
+    HomePass_to_AwayPass  = Cmp_Total[Home_Away == "Home"] /
+                             Cmp_Total[Home_Away == "Away"],
+    HomePass_to_AwayPass_short =
+      Cmp_Short[Home_Away == "Home"] /
+      Cmp_Short[Home_Away == "Away"],
   ) %>%
-  ungroup() %>%
-  select(Game_URL, Home_better, HomePass_to_AwayPass,HomePass_to_AwayPass_short)
+  ungroup()
 
-# print to check
-head(mod_EPL_24)
+head(all_pass_summary)
 ```
 
 
@@ -39,23 +52,25 @@ head(mod_EPL_24)
 # Fit logistic model
 log_mod <- glm(
   Home_better ~ HomePass_to_AwayPass,
-  data   = mod_EPL_24,
+  data   = all_pass_summary,
   family = 'binomial'
 )
 
 # View the coefficient estimates, p-values, etc.
 summary(log_mod)
 
+if (F) {
 exp(coef(log_mod))
-1/(1+exp(0.4440-0.6644))
-1/(1+exp(0.4440-0.6644*1.5))
+1/(1+exp(0.62170))
+1/(1+exp(0.4440-0.6644*1))
+}
 ```
 
 ```{r}
 # Fit logistic model
 log_mod2 <- glm(
   Home_better ~ HomePass_to_AwayPass_short,
-  data   = mod_EPL_24,
+  data   = all_pass_summary,
   family = 'binomial'
 )
 
@@ -64,7 +79,7 @@ summary(log_mod2)
 ```
 
 ```{r}
-ggplot(mod_EPL_24, aes(x = "", y = HomePass_to_AwayPass_short)) +
+ggplot(all_pass_summary, aes(x = "", y = HomePass_to_AwayPass_short)) +
   geom_boxplot() +
   labs(
     x     = NULL,
@@ -74,7 +89,7 @@ ggplot(mod_EPL_24, aes(x = "", y = HomePass_to_AwayPass_short)) +
   theme_minimal()
 
 # Boxplot for HomePass_to_AwayPass
-ggplot(mod_EPL_24, aes(x = "", y = HomePass_to_AwayPass)) +
+ggplot(all_pass_summary, aes(x = "", y = HomePass_to_AwayPass)) +
   geom_boxplot() +
   labs(
     x     = NULL,
@@ -86,7 +101,7 @@ ggplot(mod_EPL_24, aes(x = "", y = HomePass_to_AwayPass)) +
 ```
 
 ```{r}
-ggplot(mod_EPL_24, aes(x = HomePass_to_AwayPass_short)) +
+ggplot(all_pass_summary, aes(x = HomePass_to_AwayPass_short)) +
   geom_histogram(binwidth = 0.1, boundary = 0, closed = "left") +
   labs(
     x     = "HomePass_to_AwayPass_short",
@@ -96,7 +111,7 @@ ggplot(mod_EPL_24, aes(x = HomePass_to_AwayPass_short)) +
   theme_minimal()
 
 # Histogram for HomePass_to_AwayPass
-ggplot(mod_EPL_24, aes(x = HomePass_to_AwayPass)) +
+ggplot(all_pass_summary, aes(x = HomePass_to_AwayPass)) +
   geom_histogram(binwidth = 0.1, boundary = 0, closed = "left") +
   labs(
     x     = "HomePass_to_AwayPass",
@@ -106,4 +121,14 @@ ggplot(mod_EPL_24, aes(x = HomePass_to_AwayPass)) +
   theme_minimal()
 ```
 
+```{r}
+ggplot(all_pass, aes(x = Att_Short, y = Cmp_percent_Long)) +
+  geom_point(alpha = 0.6) +
+  labs(
+    x = "Short-Pass Attempts (Att_Short)",
+    y = "Long-Pass Completion Rate (%) (Cmp_percent_Long)",
+    title = "Long-Pass Completion vs Short-Pass Attempts"
+  ) +
+  theme_minimal()
+```
 
