@@ -1,0 +1,666 @@
+---
+title: "EPL_24"
+date: "5/4/2025"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(tidyr)
+library(MASS)
+library(glmnet)
+library(randomForest)
+library(lme4)
+library(performance)
+```
+
+```{r}
+pass_EPL_24<- read.csv("pass_EPL_24.csv")
+pass_EPL_23<- read.csv("pass_EPL_23.csv")
+pass_ITA_24<- read.csv("pass_ITA_24.csv")
+pass_ITA_23<- read.csv("pass_ITA_23.csv")
+
+all_pass <- rbind(
+  pass_EPL_24,
+  pass_EPL_23,
+  pass_ITA_24,
+  pass_ITA_23
+)
+dim(all_pass)
+```
+The combined data set includes variables from FBref for different passes. Data is for each match and there are two entries per match (one from each team perspective). The following variables are included for total passes, short passes (5-15 yards), medium passes (15-30 yards), and long passes (30+ yards):
+
+- **Cmp**:passes completed (includes crosses, corner kicks, throw-ins, free kicks, and goal kicks)
+- **Att**: passes attempted
+- **Cmp_percent**:pass completion rate
+
+- **TotDist**: total distance pass travelled
+
+```{r}
+# Create match results (3 = win, 1 = draw, 0 = loss)
+all_pass <- all_pass %>%
+ mutate(
+    match_result = ifelse(
+      (Team == Home_Team & Home_Score > Away_Score) |
+      (Team == Away_Team & Away_Score > Home_Score),
+      3,
+      ifelse(Home_Score == Away_Score, 1, 0)
+    )
+  )
+```
+
+
+```{r}
+# Calculate the percent of long, medium, and short pass attempts between Serie A and Premier League
+pass_totals <- all_pass %>%
+  summarise(
+    Short = sum(Cmp_Short, na.rm = TRUE),
+    Medium = sum(Cmp_Medium, na.rm = TRUE),
+    Long = sum(Cmp_Long, na.rm = TRUE)
+  ) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "Pass_Type", values_to = "Count") %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# Pie chart
+ggplot(pass_totals, aes(x = "", y = Percentage, fill = Pass_Type)) +
+  geom_col(width = 1) +
+  coord_polar("y") +
+  labs(title = "Overall Pass Type Distribution (Both Leagues)") +
+  theme_void() +
+  scale_fill_brewer(palette = "Set2")
+
+# Calculate the pass totals for Serie A only
+serie_a_pass_totals <- all_pass %>%
+  filter(League == "Serie A") %>%
+  summarise(
+    Short = sum(Cmp_Short, na.rm = TRUE),
+    Medium = sum(Cmp_Medium, na.rm = TRUE),
+    Long = sum(Cmp_Long, na.rm = TRUE)
+  ) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "Pass_Type", values_to = "Count") %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# Pie chart for Serie A
+ggplot(serie_a_pass_totals, aes(x = "", y = Percentage, fill = Pass_Type)) +
+  geom_col(width = 1) +
+  coord_polar("y") +
+  labs(title = "Serie A Pass Type Distribution") +
+  theme_void() +
+  scale_fill_brewer(palette = "Set2")
+
+# Calculate the pass totals for Premier League only
+pl_pass_totals <- all_pass %>%
+  filter(League == "Premier League") %>%
+  summarise(
+    Short = sum(Cmp_Short, na.rm = TRUE),
+    Medium = sum(Cmp_Medium, na.rm = TRUE),
+    Long = sum(Cmp_Long, na.rm = TRUE)
+  ) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "Pass_Type", values_to = "Count") %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# Pie chart for Premier League
+ggplot(pl_pass_totals, aes(x = "", y = Percentage, fill = Pass_Type)) +
+  geom_col(width = 1) +
+  coord_polar("y") +
+  labs(title = "Premier League Pass Type Distribution") +
+  theme_void() +
+  scale_fill_brewer(palette = "Set2")
+```
+\color{blue}
+The Premier League and Serie A are about the same in terms of proportion of shot distance types
+\color{black}
+
+
+```{r}
+# Calculate proportion of pass attempts are short, medium, long for individual match
+all_pass <- all_pass %>%
+    mutate(
+    prop_short = Cmp_Short / Cmp_Total,
+    prop_medium = Cmp_Medium / Cmp_Total,
+    prop_long = Cmp_Long / Cmp_Total
+  )
+
+# Assign team playstyle based off of dominant pass style. 
+all_pass <- all_pass %>%
+  mutate(
+    play_style = ifelse(prop_short >= prop_medium & prop_short >= prop_long, "short/tiki-taka",
+                  ifelse(prop_medium >= prop_short & prop_medium >= prop_long, "medium", "long")),
+    play_style = factor(play_style, levels = c("short/tiki-taka", "medium", "long"))
+  )
+```
+
+```{r}
+# Mixed effect model with random intercept for team
+mixed_model <- lmer(match_result ~ play_style + (1 | Team), data = all_pass)
+summary(mixed_model)
+```
+
+\color{blue}
+Being more medium/long ball in terms of passing reduces odds of winning (tiki taka better)
+\color{black}
+
+```{r}
+pass_EPL <- bind_rows(pass_EPL_23, pass_EPL_24, pass_ITA_23, pass_ITA_24)
+
+# Add Derived variables to dataset
+pass_EPL <- pass_EPL %>%
+mutate(
+# Completion rates with defensive coding to avoid division by zero
+Total_completion_rate = ifelse(Att_Total > 0, Cmp_Total / Att_Total, NA),
+Short_completion_rate = ifelse(Att_Short > 0, Cmp_Short / Att_Short, NA),
+Medium_completion_rate = ifelse(Att_Medium > 0, Cmp_Medium / Att_Medium, NA),
+Long_completion_rate = ifelse(Att_Long > 0, Cmp_Long / Att_Long, NA),
+# Pass type percentages of total attempts
+Short_pass_pct = ifelse(Att_Total > 0, Att_Short / Att_Total, NA),
+Medium_pass_pct = ifelse(Att_Total > 0, Att_Medium / Att_Total, NA),
+Long_pass_pct = ifelse(Att_Total > 0, Att_Long / Att_Total, NA)
+)
+```
+
+```{r}
+set.seed(106)
+features <- pass_EPL[, c("Att_Total", "Cmp_Total", "Cmp_percent_Total",
+"Att_Short", "Cmp_Short", "Cmp_percent_Short",
+"Att_Medium", "Cmp_Medium", "Cmp_percent_Medium",
+"Att_Long", "Cmp_Long", "Cmp_percent_Long",
+"Short_pass_pct", "Medium_pass_pct", "Long_pass_pct")]
+# Scale the features
+features_scaled <- scale(features)
+# Run K-means clustering on match level
+kmeans_result <- kmeans(features_scaled, centers = 2, nstart = 1000)
+# Add cluster labels to pass_EPL
+pass_EPL <- pass_EPL %>%
+mutate(short = ifelse(kmeans_result$cluster== 2, 1, 0))
+# K-means Plot
+ggplot(pass_EPL, aes(x = Short_pass_pct, y = Long_pass_pct, color = as.factor(short))) +
+geom_point(size = 2) +
+labs(title = "K-means Clustering of Matches by Passing Style",
+x = "Short Pass Percentage",
+y = "Long Pass Percentage",
+color = "Short-passing (1 = Yes, 0 = No)") +
+theme_minimal()
+```
+
+```{r}
+# Binary Indicator for Home and Away
+pass_EPL <- pass_EPL %>%
+mutate(
+is_Home = ifelse(Team== Home_Team, 1, 0)
+)
+# Create the expected goals for each match
+pass_EPL <- pass_EPL %>%
+mutate(
+xG = ifelse(Team== Home_Team, Home_xG, Away_xG)
+)
+# Define variables to scale
+vars_to_scale <- c("PrgDist_Total", "PrgP", "Final_Third", "PPA", "CrsPA",
+"Att_Total", "Cmp_Total",
+"Att_Short", "Cmp_Short",
+"Att_Medium", "Cmp_Medium",
+"Att_Long", "Cmp_Long")
+# Standardize selected variables
+pass_EPL_std <- pass_EPL %>%
+mutate(across(all_of(vars_to_scale), scale))
+# Define outcome and predictors
+outcome <- "xG"
+predictors <- c("PrgDist_Total", "PrgP", "Final_Third", "PPA", "CrsPA",
+"Att_Total", "Cmp_Total", "Cmp_percent_Total",
+"Att_Short", "Cmp_Short", "Cmp_percent_Short",
+"Att_Medium", "Cmp_Medium", "Cmp_percent_Medium",
+"Att_Long", "Cmp_Long", "Cmp_percent_Long",
+"Short_pass_pct", "Medium_pass_pct", "Long_pass_pct",
+"short", "is_Home")
+```
+
+
+```{r}
+# Prepare long format data
+pass_EPL_long <- pass_EPL_std %>%
+dplyr::select(all_of(c(outcome, predictors))) %>%
+pivot_longer(
+cols = all_of(predictors),
+names_to = "Variable",
+values_to = "Value"
+)
+# Plot boxplots
+ggplot(pass_EPL_long, aes(x = Variable, y = Value)) +
+geom_boxplot() +
+facet_wrap(~ Variable, scales = "free") +
+coord_cartesian(clip = "off") +
+labs(title = "Boxplots of Predictors",
+x = NULL,
+y = "Value") +
+theme_minimal() +
+theme(axis.text.x = element_blank(),
+axis.ticks.x = element_blank())
+
+# Plot histograms
+ggplot(pass_EPL_long, aes(x = Value)) +
+geom_histogram(bins = 30, fill = "blue", color = "white") +
+facet_wrap(~ Variable, scales = "free") +
+labs(title = "Histograms of Predictors",
+x = "Value",
+y = "Count") +
+theme_minimal()
+```
+
+```{r}
+pass_EPL_alt <- pass_EPL
+
+# Apply square root to left-skewed variables
+left_skewed <- c("Cmp_percent_Medium", "Cmp_percent_Short", "Cmp_percent_Total")
+pass_EPL_alt <- pass_EPL_alt %>%
+mutate(across(all_of(left_skewed), sqrt))
+# Apply natural log to right-skewed variables
+right_skewed <- c("PrgP", "PPA", "Final_Third", "Cmp_Short", "Att_Short")
+pass_EPL_alt <- pass_EPL_alt %>%
+mutate(across(all_of(right_skewed), log1p))
+# Redefine all predictors as before
+predictors <- c("PrgDist_Total", "PrgP", "Final_Third", "PPA", "CrsPA",
+"Att_Total", "Cmp_Total", "Cmp_percent_Total",
+"Att_Short", "Cmp_Short", "Cmp_percent_Short",
+"Att_Medium", "Cmp_Medium", "Cmp_percent_Medium",
+"Att_Long", "Cmp_Long", "Cmp_percent_Long",
+"Short_pass_pct", "Medium_pass_pct", "Long_pass_pct",
+"short", "is_Home")
+# Standardize all numeric predictors except binary indicators
+vars_to_scale <- predictors[!predictors %in% c("short", "is_Home")]
+pass_EPL_alt <- pass_EPL_alt %>%
+mutate(across(all_of(vars_to_scale), scale))
+```
+
+```{r}
+formula_base <- as.formula(
+paste("xG ~", paste(predictors, collapse = " + "))
+)
+base_model <- lm(formula_base, data = pass_EPL_std)
+summary(base_model)
+
+AIC(base_model)
+
+plot(base_model)
+```
+
+
+```{r}
+formula_base <- as.formula(
+paste("xG ~", paste(predictors, collapse = " + "))
+)
+base_model_alt <- lm(formula_base, data = pass_EPL_alt)
+summary(base_model_alt)
+
+AIC(base_model_alt)
+
+plot(base_model_alt)
+```
+
+
+```{r}
+# Build upper-bound formula w/ all interactions
+upper_formula <- as.formula(
+  paste(outcome, "~ (", paste(predictors, collapse = " + "), ")^2")
+)
+
+# Build lower-bound formula intercept only
+lower_formula <- as.formula(paste(outcome, "~ 1"))
+# Fit lower model
+lower_model <- lm(lower_formula, data = pass_EPL_std)
+# Stepwise selection
+stepwise_model <- stepAIC(lower_model,
+scope = list(lower = lower_formula, upper = upper_formula),
+direction = "both",
+trace = FALSE)
+summary(stepwise_model)
+
+AIC(stepwise_model)
+
+plot(stepwise_model)
+```
+
+
+```{r}
+# Build upper-bound formula w/ all interactions
+upper_formula <- as.formula(
+paste(outcome, "~ (", paste(predictors, collapse = " + "), ")^2")
+
+)
+# Build lower-bound formula intercept only
+lower_formula <- as.formula(paste(outcome, "~ 1"))
+# Fit lower model
+lower_model <- lm(lower_formula, data = pass_EPL_alt)
+# Stepwise selection
+stepwise_model <- stepAIC(lower_model,
+scope = list(lower = lower_formula, upper = upper_formula),
+direction = "both",
+trace = FALSE)
+summary(stepwise_model)
+
+AIC(stepwise_model)
+
+plot(stepwise_model)
+```
+
+
+```{r}
+# Prepare the X and y matrices
+X <- model.matrix(xG~ PrgDist_Total + PrgP + Final_Third + PPA + CrsPA +
+Att_Total + Cmp_Total + Cmp_percent_Total +
+Att_Short + Cmp_Short + Cmp_percent_Short +
+Att_Medium + Cmp_Medium + Cmp_percent_Medium +
+Att_Long + Cmp_Long + Cmp_percent_Long +
+Short_pass_pct + Medium_pass_pct + Long_pass_pct +
+short + is_Home,
+data = pass_EPL_std)[,-1]
+y <- pass_EPL_std$xG
+
+# Run LASSO
+lasso_fit <- cv.glmnet(X, y, alpha = 1, nfolds = 10)
+lasso_best_lambda <- lasso_fit$lambda.min
+lasso_model <- glmnet(X, y, alpha = 1, lambda = lasso_best_lambda)
+
+# Run Ridge
+ridge_fit <- cv.glmnet(X, y, alpha = 0, nfolds = 10)
+ridge_best_lambda <- ridge_fit$lambda.min
+ridge_model <- glmnet(X, y, alpha = 0, lambda = ridge_best_lambda)
+
+# Get predictions
+lasso_pred <- predict(lasso_model, X)
+ridge_pred <- predict(ridge_model, X)
+
+# Compute RSS
+lasso_rss <- sum((y- lasso_pred)^2)
+ridge_rss <- sum((y- ridge_pred)^2)
+
+# Compute TSS
+tss <- sum((y- mean(y))^2)
+
+# Find Adj Rˆ2 utilizing their formulas
+n <- length(y)
+p_lasso <- sum(coef(lasso_model) != 0)- 1
+p_ridge <- length(coef(ridge_model))- 1
+tss <- sum((y- mean(y))^2)
+lasso_adj_r2 <- 1- (lasso_rss / (n- p_lasso- 1)) / (tss / (n- 1))
+ridge_adj_r2 <- 1- (ridge_rss / (n- p_ridge- 1)) / (tss / (n- 1))
+
+#Print
+cat("Lasso \n")
+cat("Adjusted R-Squared:", lasso_adj_r2, "\n\n")
+
+cat("Ridge\n")
+cat("Adjusted R-Squared:", ridge_adj_r2, "\n")
+
+# Calculate AIC manually via formula
+lasso_aic <- n * log(lasso_rss / n) + 2 * sum(coef(lasso_model) != 0)
+ridge_aic <- n * log(ridge_rss / n) + 2 * length(coef(ridge_model))
+
+cat("Lasso \n")
+
+# print(coef(lasso_model))
+cat("AIC:", lasso_aic, "\n")
+
+cat("Ridge\n")
+
+# print(coef(ridge_model))
+cat("AIC:", ridge_aic, "\n")
+```
+
+```{r}
+# Make predictions using the best lambda
+lasso_pred <- predict(lasso_model, s = lasso_model$lambda.min, newx = X)
+ridge_pred <- predict(ridge_model, s = ridge_model$lambda.min, newx = X)
+# Calculate Residuals
+lasso_resid <- y- lasso_pred
+ridge_resid <- y- ridge_pred
+# For Lasso
+par(mfrow = c(2, 2))
+plot(lasso_pred, lasso_resid, main = "Lasso Residuals vs Fitted", xlab = "Fitted", ylab = "Residuals")
+abline(h = 0, col = "blue")
+qqnorm(lasso_resid, main = "Lasso Normal Q-Q")
+qqline(lasso_resid, col = "blue")
+# For Ridge
+plot(ridge_pred, ridge_resid, main = "Ridge Residuals vs Fitted", xlab = "Fitted", ylab = "Residuals")
+abline(h = 0, col = "blue")
+qqnorm(ridge_resid, main = "Ridge Normal Q-Q")
+qqline(ridge_resid, col = "blue")
+```
+
+```{r}
+# Reset plotting layout
+par(mfrow = c(1, 1))
+```
+
+```{r}
+set.seed(106)
+# Define predictors
+predictors_all <- c("PrgDist_Total", "PrgP", "Final_Third", "PPA", "CrsPA",
+"Att_Total", "Cmp_Total", "Cmp_percent_Total",
+"Att_Short", "Cmp_Short", "Cmp_percent_Short",
+"Att_Medium", "Cmp_Medium", "Cmp_percent_Medium",
+"Att_Long", "Cmp_Long", "Cmp_percent_Long",
+"Short_pass_pct", "Medium_pass_pct", "Long_pass_pct",
+"short", "is_Home")
+# Function to run RF and calculate adjusted R2
+run_rf_adj_r2 <- function(data, predictors) {
+X_rf <- data[, predictors]
+y_rf <- data$xG
+n <- nrow(data)
+p <- length(predictors)
+27
+rf_model <- randomForest(x = X_rf, y = y_rf,
+importance = TRUE,
+ntree = 1000,
+mtry = floor(sqrt(p)),
+keep.inbag = TRUE)
+oob_preds <- rf_model$predicted
+oob_mse <- mean((oob_preds- y_rf)^2)
+r2 <- 1- (var(y_rf- oob_preds) / var(y_rf))
+adj_r2 <- 1- (1- r2) * ((n- 1) / (n- p- 1))
+cat("OOB MSE:", oob_mse, "\n")
+cat("R-Squared:", r2, "\n")
+cat("Adjusted R-Squared:", adj_r2, "\n")
+varImpPlot(rf_model, main = paste("Variable Importance"))
+}
+# Standard data, all predictors
+run_rf_adj_r2(pass_EPL_std, predictors_all)
+```
+```{r}
+# Alternative data, all predictors
+run_rf_adj_r2(pass_EPL_alt, predictors_all)
+```
+
+
+```{r}
+set.seed(106)
+
+# Standard stepwise predictors
+std_stepwise_predictors <- c("PPA", "is_Home", "Cmp_percent_Long", "CrsPA",
+"Final_Third", "PrgDist_Total", "Att_Total",
+"Cmp_Short", "PrgP")
+# Alternative stepwise predictors
+alt_stepwise_predictors <- c("PPA", "is_Home", "Cmp_percent_Long", "CrsPA",
+"Att_Medium", "PrgDist_Total", "Att_Total",
+"Cmp_Total", "Cmp_percent_Medium", "PrgP",
+"Final_Third")
+
+# Function to run RF and report stats
+run_rf <- function(predictor_list, data, outcome_var = "xG") {
+X <- data[, predictor_list]
+y <- data[[outcome_var]]
+rf <- randomForest(x = X, y = y,
+importance = TRUE,
+ntree = 1000,
+mtry = floor(sqrt(length(predictor_list))),
+keep.inbag = TRUE)
+oob_preds <- rf$predicted
+oob_mse <- mean((oob_preds- y)^2)
+r2 <- 1- (var(y- oob_preds) / var(y))
+adj_r2 <- 1- ((1- r2) * (nrow(data)- 1) / (nrow(data)- length(predictor_list)- 1))
+cat("Predictors:", paste(predictor_list, collapse = ", "), "\n")
+cat("OOB MSE:", oob_mse, "\n")
+cat("R-Squared:", r2, "\n")
+cat("Adjusted R-Squared:", adj_r2, "\n")
+y_rf <- pass_EPL_std$xG
+varImpPlot(rf)
+}
+
+# Run on standard stepwise
+run_rf(std_stepwise_predictors, pass_EPL_std)
+
+# Run on alternative stepwise
+run_rf(alt_stepwise_predictors, pass_EPL_alt)
+```
+
+```{r}
+# Standard dataset
+formula_all_std <- as.formula(
+paste("xG ~", paste(predictors, collapse = " + "), "+ (1 | Team)")
+)
+mixed_all_std <- lmer(formula_all_std, data = pass_EPL_std)
+summary(mixed_all_std)
+
+AIC(mixed_all_std)
+
+r2(mixed_all_std)
+```
+```{r}
+# Alternative dataset
+mixed_all_alt <- lmer(formula_all_std, data = pass_EPL_alt)
+summary(mixed_all_alt)
+
+AIC(mixed_all_alt)
+
+r2(mixed_all_alt)
+```
+
+```{r}
+# Had to pull some ChatGPT here because the two-way interactions were not working :/ Sorry
+library(lme4)
+set.seed(106)
+library(performance)
+# Create the model matrix with two-way interactions
+X_std <- model.matrix(
+~ (PrgDist_Total + PrgP + Final_Third + PPA + CrsPA +
+Att_Total + Cmp_Total + Cmp_percent_Total +
+Att_Short + Cmp_Short + Cmp_percent_Short +
+Att_Medium + Cmp_Medium + Cmp_percent_Medium +
+Att_Long + Cmp_Long + Cmp_percent_Long +
+Short_pass_pct + Medium_pass_pct + Long_pass_pct +
+short + is_Home)^2,
+data = pass_EPL_std
+)
+# Convert to data.frame and add outcome + random effect
+df_std <- as.data.frame(X_std)
+df_std$xG <- pass_EPL_std$xG
+df_std$Team <- pass_EPL_std$Team
+
+# Build formula
+formula_mixed_std <- as.formula(
+  paste("xG ~", paste(colnames(df_std)[!colnames(df_std) %in% c("xG", "Team", "(Intercept)")], collapse = " + "), "+ (1 | Team)")
+)
+
+#Fit mixed model
+mixed_model_std <- lmer(formula_mixed_std, data = df_std)
+
+summary(mixed_model_std)
+```
+
+
+```{r}
+# AIC
+aic_std <- AIC(mixed_model_std)
+cat("AIC (standard dataset):", aic_std, "\n")
+
+# R-Squared
+r2_std <- r2(mixed_model_std)
+print(r2_std)
+```
+
+```{r}
+set.seed(106)
+
+# Create the model matrix with two-way interactions
+X_alt <- model.matrix(
+~ (PrgDist_Total + PrgP + Final_Third + PPA + CrsPA +
+Att_Total + Cmp_Total + Cmp_percent_Total +
+Att_Short + Cmp_Short + Cmp_percent_Short +
+Att_Medium + Cmp_Medium + Cmp_percent_Medium +
+Att_Long + Cmp_Long + Cmp_percent_Long +
+Short_pass_pct + Medium_pass_pct + Long_pass_pct +
+short + is_Home)^2,
+data = pass_EPL_alt
+)
+# Convert to data.frame and add outcome + random effect
+df_alt <- as.data.frame(X_alt)
+df_alt$xG <- pass_EPL_alt$xG
+df_alt$Team <- pass_EPL_alt$Team
+
+# Build formula
+formula_mixed_alt <- as.formula(
+  paste("xG ~", paste(colnames(df_std)[!colnames(df_std) %in% c("xG", "Team", "(Intercept)")], collapse = " + "), "+ (1 | Team)")
+)
+
+# Fit mixed model
+mixed_model_alt <- lmer(formula_mixed_alt, data = df_alt)
+# Summary
+summary(mixed_model_alt)
+```
+
+```{r}
+# AIC
+aic_alt <- AIC(mixed_model_std)
+cat("AIC (standard dataset):", aic_alt, "\n")
+
+# R-Squared
+r2_alt <- r2(mixed_model_alt)
+print(r2_alt)
+```
+
+```{r}
+# Standard dataset's mixed model
+formula_mixed_stepwise_std <- as.formula(
+"xG ~ PPA + is_Home + Cmp_percent_Long + CrsPA + Final_Third + PrgDist_Total +
+Att_Total + Cmp_Short + PrgP +
+PPA:Final_Third + CrsPA:Final_Third + Cmp_percent_Long:Att_Total +
+PPA:PrgP + is_Home:PrgP + PPA:Cmp_percent_Long + (1 | Team)"
+)
+mixed_model_stepwise_std <- lmer(formula_mixed_stepwise_std, data = pass_EPL_std)
+summary(mixed_model_stepwise_std)
+
+cat("AIC (standard stepwise):", AIC(mixed_model_stepwise_std), "\n")
+
+r2_stepwise_std <- r2(mixed_model_stepwise_std)
+print(r2_stepwise_std)
+```
+
+
+```{r}
+# Altnerative Dataset Mixed model
+formula_mixed_stepwise_alt <- as.formula(
+"xG ~ PPA + is_Home + Cmp_percent_Long + CrsPA + Att_Medium + PrgDist_Total +
+Att_Total + Cmp_Total + Cmp_percent_Medium + PrgP + Final_Third +
+PPA:Cmp_percent_Long + PPA:is_Home + Cmp_percent_Long:PrgDist_Total +
+PPA:CrsPA + PrgDist_Total:PrgP + PPA:PrgP + PPA:Final_Third +
+is_Home:Cmp_percent_Long + (1 | Team)"
+)
+mixed_model_stepwise_alt <- lmer(formula_mixed_stepwise_alt, data = pass_EPL_alt)
+
+summary(mixed_model_stepwise_alt)
+```
+
+
+```{r}
+cat("AIC (alternative stepwise):", AIC(mixed_model_stepwise_alt), "\n")
+
+r2_stepwise_alt <- r2(mixed_model_stepwise_alt)
+print(r2_stepwise_alt)
+```
+
+```{r}
+
+```
