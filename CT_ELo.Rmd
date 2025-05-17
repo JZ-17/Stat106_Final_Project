@@ -1,0 +1,74 @@
+---
+title: "elo model"
+output:  
+  pdf_document: default
+  html_document: default
+date: "2025-05-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(tidyr)
+library(MASS)
+library(glmnet)
+library(randomForest)
+library(lme4)
+library(performance)
+library(PlayerRatings)
+```
+
+```{r}
+pass_EPL_24<- read.csv("pass_EPL_24.csv")
+pass_EPL_23<- read.csv("pass_EPL_23.csv")
+pass_ITA_24<- read.csv("pass_ITA_24.csv")
+pass_ITA_23<- read.csv("pass_ITA_23.csv")
+
+all_pass <- rbind(
+  pass_EPL_24,
+  pass_EPL_23,
+  pass_ITA_24,
+  pass_ITA_23
+)
+dim(all_pass)
+```
+
+```{r}
+# Make Elo df with Match date, teams, and scores
+elo_df <- all_pass %>%
+  dplyr::select(Match_Date, Home_Team, Away_Team, Home_Score, Away_Score) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(
+    Match_Date = as.Date(Match_Date),
+    dayNum = as.numeric(Match_Date),
+    team1 = Home_Team,
+    team2 = Away_Team,
+    team1win = dplyr::case_when(
+      Home_Score > Away_Score ~ 1,
+      Home_Score < Away_Score ~ 0,
+      TRUE ~ 0.5
+    )
+  )
+
+elo_input <- elo_df %>%
+  dplyr::select(dayNum, team1, team2, team1win)
+
+# Fit Elo model
+elo_model <- elo(elo_input, init = 1500, kfac = 20, gamma = 0, history = TRUE)
+
+# Top 10 Ratings
+top10 <- elo_model$ratings[1:10,]
+print(top10)
+
+# Lowest 10 
+bottom10 <- elo_model$ratings[46:37,]
+print(bottom10)
+
+# Elo progression
+plot(elo_model)
+
+
+```
+
